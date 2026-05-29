@@ -132,6 +132,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
         <ActionContainer>
           <FormButtonContainer hasTopBorder>
             <Button
+              testID="grid-action-sort-asc"
               onClick={() => handleColumnSortChanged("asc")}
               onLongPress={() => handleColumnSortChanged("asc", true)}
               text="Asc"
@@ -148,6 +149,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
           </FormButtonContainer>
           <FormButtonContainer hasTopBorder>
             <Button
+              testID="grid-action-sort-desc"
               onClick={() => handleColumnSortChanged("desc")}
               onLongPress={() => handleColumnSortChanged("desc", true)}
               text="Desc"
@@ -164,6 +166,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
           </FormButtonContainer>
           <FormButtonContainer hasTopBorder>
             <Button
+              testID="grid-action-sort-clear"
               onClick={() => handleColumnSortChanged(null)}
               onLongPress={() => handleColumnSortChanged(null, true)}
               text="Clear Sorting"
@@ -178,6 +181,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
         <ActionContainer>
           <FormButtonContainer>
             <StyledButton
+              testID="grid-action-filter"
               onClick={() => onActionItemClicked("filter")}
               buttonTheme="basic"
             >
@@ -214,6 +218,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
         <ActionContainer>
           <FormButtonContainer>
             <StyledButton
+              testID="grid-action-autosize"
               onClick={() => onActionItemClicked("autoResize")}
               buttonTheme="basic"
             >
@@ -227,6 +232,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
         <ActionContainer>
           <FormButtonContainer>
             <StyledButton
+              testID="grid-action-pin"
               onClick={() => onActionItemClicked("pin")}
               buttonTheme="basic"
             >
@@ -239,7 +245,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
       {canGrouped && (
         <ActionContainer>
           <FormButtonContainer>
-            <StyledButton onClick={handleGroup} buttonTheme="basic">
+            <StyledButton testID="grid-action-group" onClick={handleGroup} buttonTheme="basic">
               <StyledFontAwesomeIcon size={16} icon={faLayerGroup} />
               <StyledText>{groupBtnLabel}</StyledText>
             </StyledButton>

@@ -76,6 +76,7 @@ export const Button: React.FC<ButtonProps> = ({
   width,
   disabled = false,
   fontSize,
+  accessibilityLabel,
   ...props
 }) => {
   const t = useTokens();
@@ -91,6 +92,11 @@ export const Button: React.FC<ButtonProps> = ({
     <View style={[{ height: resolvedHeight, width }, containerStyles]}>
       <StyledPressable
         disabled={disabled || busy}
+        // Icon-only buttons (children + a `text` label) render no visible text;
+        // expose `text` as the accessibility label so screen readers — and
+        // Detox by.label() — can identify them. Caller-supplied labels win.
+        accessibilityLabel={accessibilityLabel ?? text}
+        accessibilityRole="button"
         {...props}
         onPress={handlePress}
         buttonTheme={buttonTheme}

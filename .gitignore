@@ -1,5 +1,7 @@
 # Library build output (react-native-builder-bob)
-lib/
+# Anchored to repo root so it does not also ignore nested source dirs
+# named "lib" (e.g. src/view/columnActions/filter/lib).
+/lib/
 
 # Dependencies
 node_modules/
@@ -26,3 +28,5 @@ yarn-debug.log*
 
 # Coverage
 /coverage
+
+/docs

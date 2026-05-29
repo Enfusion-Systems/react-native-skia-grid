@@ -10,5 +10,10 @@ export {
 } from "./GridThemeProvider";
 export { getTokens } from "./density";
 export type { Density, Tokens } from "./density";
-export { DensityProvider, useTokens, useGridStyles } from "./DensityProvider";
+export {
+  DensityProvider,
+  useTokens,
+  useGridStyles,
+  useDensity,
+} from "./DensityProvider";
 export type { GridStyles } from "./gridStyles";

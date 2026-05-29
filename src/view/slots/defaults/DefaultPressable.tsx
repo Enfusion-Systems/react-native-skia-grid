@@ -43,6 +43,12 @@ export type StyleablePressableBaseProps = React.PropsWithChildren<{
   onLongPress?: VoidFunction;
   hitSlop?: HitSlop;
   allowPointerEvents?: boolean;
+  // Accessibility / test identifiers, forwarded to the underlying view so that
+  // icon-only buttons are reachable by screen readers and by Detox matchers.
+  accessibilityLabel?: string;
+  accessibilityRole?: string;
+  accessible?: boolean;
+  testID?: string;
 }>;
 
 export type StyleablePressableProps = Omit<
@@ -70,6 +76,10 @@ export const StyleablePressableBase = React.forwardRef<
     containerStyles,
     hitSlop = 0,
     allowPointerEvents = false,
+    accessibilityLabel,
+    accessibilityRole,
+    accessible,
+    testID,
   },
   ref
 ) {
@@ -135,7 +145,16 @@ export const StyleablePressableBase = React.forwardRef<
 
   return (
     <GestureDetector gesture={Gesture.Exclusive(longPressGesture, tapGesture)}>
-      <View ref={ref} style={[baseContainerStyles, containerStyles]}>
+      <View
+        ref={ref}
+        testID={testID}
+        accessibilityLabel={accessibilityLabel}
+        accessibilityRole={accessibilityRole as never}
+        // Only become a single a11y element when we have a label (icon-only
+        // buttons); text buttons stay ungrouped so their inner text is matchable.
+        accessible={accessible ?? (accessibilityLabel != null ? true : undefined)}
+        style={[baseContainerStyles, containerStyles]}
+      >
         <View
           pointerEvents={allowPointerEvents ? "auto" : "none"}
           style={[baseStyle, style, pressed ? pressedStyles : {}]}

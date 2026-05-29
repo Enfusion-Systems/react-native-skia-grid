@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { DensityProvider, useDensity } from "../../themes/DensityProvider";
 import { GridThemeProvider, useGridTheme } from "../../themes/GridThemeProvider";
 import type { BottomSheetSlotProps, GridSlots } from "./types";
 
@@ -34,17 +35,21 @@ export function SlotsProvider({ defaults, slots, children }: SlotsProviderProps)
 
   // Wrap the BottomSheet slot with a context bridge.
   // @gorhom/bottom-sheet renders children through a portal, stripping all
-  // React context (GridThemeProvider, SlotsProvider, styled-components
-  // ThemeProvider). By injecting providers as *children* of the BottomSheet,
-  // they travel through the portal with the content, so any component
-  // inside the sheet retains access to theme and slots.
+  // React context (GridThemeProvider, DensityProvider, SlotsProvider). By
+  // injecting the providers as *children* of the BottomSheet, they travel
+  // through the portal with the content, so any component inside the sheet
+  // retains access to theme, density (tokens + theme-derived gridStyles) and
+  // slots. DensityProvider must sit INSIDE GridThemeProvider so its styles are
+  // recomputed against the bridged theme.
   const value = React.useMemo(() => {
     const Original = merged.BottomSheet;
 
     const BridgedBottomSheet: React.FC<BottomSheetSlotProps> =
       function BridgedBottomSheet(props) {
-        // eslint-disable-next-line react-hooks/rules-of-hooks
+        /* eslint-disable react-hooks/rules-of-hooks */
         const theme = useGridTheme();
+        const density = useDensity();
+        /* eslint-enable react-hooks/rules-of-hooks */
 
         return React.createElement(
           Original,
@@ -53,9 +58,13 @@ export function SlotsProvider({ defaults, slots, children }: SlotsProviderProps)
             GridThemeProvider,
             { theme },
             React.createElement(
-              SlotsContext.Provider,
-              { value: slotsRef.current },
-              props.children
+              DensityProvider,
+              { density },
+              React.createElement(
+                SlotsContext.Provider,
+                { value: slotsRef.current },
+                props.children
+              )
             )
           )
         );
