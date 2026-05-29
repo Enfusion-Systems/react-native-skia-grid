@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020"],
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["jest", "detox", "node"],
+    "paths": {
+      "react-native-skia-grid": ["../../src"],
+      "react-native-skia-grid/*": ["../../src/*"]
+    }
+  },
+  "include": ["specs/**/*.ts", "helpers/**/*.ts", "globalSetup.ts", "globalTeardown.ts"]
+}

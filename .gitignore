@@ -1,0 +1,28 @@
+# Library build output (react-native-builder-bob)
+lib/
+
+# Dependencies
+node_modules/
+
+# Caches
+.turbo/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+yarn-debug.log*
+
+# Detox artifacts (suite-level)
+.artifacts/
+
+# Coverage
+/coverage

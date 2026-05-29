@@ -1,0 +1,14 @@
+{
+  "extends": "@react-native/typescript-config/tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-native",
+    "strict": true,
+    "noEmit": true,
+    "paths": {
+      "react-native-skia-grid": ["../src"],
+      "react-native-skia-grid/*": ["../src/*"]
+    }
+  },
+  "include": ["App.tsx", "src/**/*", "index.js"],
+  "exclude": ["node_modules", "e2e"]
+}
