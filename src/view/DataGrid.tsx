@@ -203,7 +203,11 @@ export function createGridComp<T extends Object>() {
 
     // Columns, sortStatus, and filterState are owned by ColumnManager.
     // React subscribes via useEngineStore — there's no React useState mirror.
-    const columns = useEngineStore(
+    // `engineColumns` is the manager's logical column list. The synthetic group
+    // column is a pure render artifact (built in the `columns` memo below) and
+    // is never persisted here, so this — and the public getColumnState — stays
+    // free of it.
+    const engineColumns = useEngineStore(
       engine,
       ColumnEventTypes.ColumnsChanged,
       () => columnManager.getColumns()
@@ -256,7 +260,46 @@ export function createGridComp<T extends Object>() {
       resetColumnWidthCache,
       updateColumnWidthCache,
       recomputeGroupColumnWidth,
-    } = useColumnWidthCache<T>({ columns, font, rowsDataRef });
+    } = useColumnWidthCache<T>({ columns: engineColumns, font, rowsDataRef });
+
+    // The synthetic group column is injected here, in one place, whenever
+    // grouping is active. It carries GroupCellRenderer — the renderer that draws
+    // the group value and the expand/collapse caret — plus its Skia-measured
+    // width and any autoGroupColumnDefs overrides, all of which are view/render
+    // concerns. Because the renderer reads from this memo, this is the single
+    // funnel every render path crosses (mount SetColumns, runtime ToggleGroup,
+    // imperative setColumns), so none can bypass it. Idempotent: a no-op when
+    // nothing is grouped or the column is already present.
+    const columns = React.useMemo<SkiaInternalGridColumn<T>[]>(() => {
+      if (
+        !engineColumns.some((col) => col.rowGroup) ||
+        engineColumns.some((col) => col.__id === GROUP_COLUMN_ID)
+      ) {
+        return engineColumns;
+      }
+      // Pins left-most, but never ahead of a leading selection checkbox.
+      const insertAt = engineColumns[0]?.checkboxSelection ? 1 : 0;
+      const groupColumn = {
+        ...(autoGroupColumnDefs ?? {
+          name: GROUP_COLUMN_NAME,
+          colId: GROUP_COLUMN_NAME,
+          pinned: PinnedStatuses.LEFT,
+          canPinned: false,
+          canFilter: false,
+          canResize: true,
+          sortable: false,
+        }),
+        __id: GROUP_COLUMN_ID,
+        id: autoGroupColumnDefs?.id ?? GROUP_COLUMN_ID,
+        __index: insertAt,
+        field: "",
+        width: columnWidthMap.current.get(GROUP_COLUMN_ID) ?? 105,
+        cellRenderer: autoGroupColumnDefs?.cellRenderer ?? GroupCellRenderer,
+      } as SkiaInternalGridColumn<T>;
+      const next = [...engineColumns];
+      next.splice(insertAt, 0, groupColumn);
+      return next;
+    }, [engineColumns, autoGroupColumnDefs, columnWidthMap]);
 
     // #endregion
     // #region SECTION 6: PROP-SYNC EFFECTS ══════════════════════════════════════
@@ -393,43 +436,15 @@ export function createGridComp<T extends Object>() {
       [engine, onFilterChanged]
     );
 
-    // View-layer wrapper around the SetColumns command. Injects React
-    // cell renderers (GroupCellRenderer / SelectionCellRenderer) that
-    // can't live in pure-TS core, then hands the list to ColumnManager
-    // which derives sortStatus + groupedColumns and emits events.
+    // View-layer wrapper around the SetColumns command. Injects the React
+    // SelectionCellRenderer (which can't live in pure-TS core), then hands the
+    // list to ColumnManager which derives sortStatus + groupedColumns and emits
+    // events. The synthetic group column is NOT injected here: it is layered on
+    // the read path (the `columns` memo above) so it also covers the grouping
+    // commands that bypass this wrapper (SetColumns at mount, ToggleGroup).
     const setColumns = useRefCallback((cols: SkiaInternalGridColumn<T>[]) => {
       setSelectedColumn(null);
       let newColumns = [...cols];
-      const groupedColumn = newColumns?.filter((col) => col.rowGroup);
-      if (
-        groupedColumn?.length &&
-        !newColumns.some((col) => col.__id === GROUP_COLUMN_ID)
-      ) {
-        newColumns.unshift(
-          autoGroupColumnDefs
-            ? {
-                ...autoGroupColumnDefs,
-                __id: GROUP_COLUMN_ID,
-                __index: 0,
-                id: autoGroupColumnDefs.id ?? GROUP_COLUMN_ID,
-              }
-            : {
-                __id: GROUP_COLUMN_ID,
-                id: GROUP_COLUMN_ID,
-                __index: 0,
-                name: GROUP_COLUMN_NAME,
-                width: columnWidthMap.current.get(GROUP_COLUMN_ID) ?? 105,
-                pinned: PinnedStatuses.LEFT,
-                field: "",
-                colId: GROUP_COLUMN_NAME,
-                canPinned: false,
-                canFilter: false,
-                canResize: true,
-                sortable: false,
-                cellRenderer: GroupCellRenderer,
-              }
-        );
-      }
       const selectionCol = newColumns.find((col) => col.checkboxSelection);
       if (selectionCol) {
         newColumns = [
@@ -470,7 +485,15 @@ export function createGridComp<T extends Object>() {
             !!suppressGroupChangesColumnVisibility,
         } as ColumnManagerCommand<T>);
 
-        // 2. On ungroup, drop stale group-row selection entries at the
+        // 2. Grouping is a terminal action from the column action sheet, so
+        //    close the sheet deterministically. (Injecting/removing the group
+        //    column changes the rendered column list, which @gorhom reacts to
+        //    by dismissing the sheet anyway; doing it explicitly keeps the
+        //    behavior predictable instead of timing-dependent. Ungroup is then
+        //    driven from the grouping pill's ✕.)
+        setSelectedColumn(null);
+
+        // 3. On ungroup, drop stale group-row selection entries at the
         //    just-removed level. Dispatched explicitly (not via a manager
         //    subscription) because SelectionManager.rows is refreshed by
         //    the RowsChanged that follows ColumnsChanged — by the time a
@@ -481,7 +504,6 @@ export function createGridComp<T extends Object>() {
             type: SelectionCommandTypes.ClearGroupAtLevel,
             level: selectedColumn.rowGroupIndex,
           } as SelectionCommand<T>);
-          setSelectedColumn(null);
         }
 
         // 3. Skia-specific group-column header width recompute. Stays in

@@ -206,7 +206,13 @@ export const GroupPill: React.FC<
             </View>
           </TouchableOpacity>
           {onRemove ? (
-            <ClickTarget onPress={() => onRemove(item)} disabled={isActive}>
+            <ClickTarget
+              testID={`grid-group-remove-${
+                item.field ?? item.colId ?? item.id
+              }`}
+              onPress={() => onRemove(item)}
+              disabled={isActive}
+            >
               <View style={grouping.clickTarget}>
                 <NormalFontAwesomeIcon icon={faXmark} size={12} />
               </View>
