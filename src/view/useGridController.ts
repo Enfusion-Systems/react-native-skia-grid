@@ -25,7 +25,6 @@ import {
   getFolderCalculatedCheckedState,
   getParentRowNodeKeys,
   getSelectedRows,
-  mapToInternalColumns,
   transformDataToRowNode,
 } from "../utils/gridUtils";
 // Inputs the controller needs from the host component. Most of these are
@@ -43,7 +42,6 @@ export type UseGridControllerDeps<T extends Object> = {
   rowHeight: number;
   fullHeight: number;
   // setters
-  setColumns: (cols: SkiaInternalGridColumn<T>[]) => void;
   setSelectedColumn: React.Dispatch<
     React.SetStateAction<SkiaInternalGridColumn<T> | null>
   >;
@@ -56,8 +54,6 @@ export type UseGridControllerDeps<T extends Object> = {
   gridCoreApiRef: React.MutableRefObject<SkiaGridCoreAPI | null>;
   // user props
   getRowId?: (rowData: T) => string;
-  defaultColumnDefs?: Partial<SkiaGridColumn<T>>;
-  columnTypes?: Record<string, Partial<SkiaGridColumn<T>>>;
   onColumnChange?: () => void;
   onSelectionChanged?: (rows: RowNode<T>[]) => void;
   onRowsUpdated?: (delta: {
@@ -77,6 +73,12 @@ export type UseGridControllerDeps<T extends Object> = {
     updateWidths: Record<string, number>[],
     removeWidths: Record<string, number>[]
   ) => void;
+  // Column API methods, produced by useColumnController and assembled into the
+  // imperative SkiaGridAPI here (this hook keeps useImperativeHandle assembly).
+  updateColumn: (id: string, def: SkiaGridColumn<T>) => void;
+  setColumnsInternal: (newColumns: SkiaGridColumn<T>[]) => void;
+  getColumnState: () => SkiaInternalGridColumn<T>[];
+  applyColumnState: (args: ApplyColumnStateParams<T>) => void;
 };
 
 // Owns the body of the imperative `SkiaGridAPI<T>`. Lives outside DataGrid so
@@ -95,7 +97,6 @@ export function useGridController<T extends Object>(
     nodesSelection,
     rowHeight,
     fullHeight,
-    setColumns,
     setSelectedColumn,
     setNodesSelection,
     setTopRowNode,
@@ -103,8 +104,6 @@ export function useGridController<T extends Object>(
     columnManager,
     gridCoreApiRef,
     getRowId,
-    defaultColumnDefs,
-    columnTypes,
     onColumnChange,
     onSelectionChanged,
     onRowsUpdated,
@@ -115,6 +114,10 @@ export function useGridController<T extends Object>(
     updateRowSelectionState,
     deselectAll,
     updateColumnWidthCache,
+    updateColumn,
+    setColumnsInternal,
+    getColumnState,
+    applyColumnState,
   } = deps;
 
   const updateRowsData = useRefCallback(
@@ -172,36 +175,9 @@ export function useGridController<T extends Object>(
     [getRowId, rowsDataRef, columns, font, updateColumnWidthCache]
   );
 
-  const updateColumn = useRefCallback(
-    (id: string, def: SkiaGridColumn<T>) => {
-      const colIdx = columns.findIndex((i) => i.id === id);
-      if (colIdx === -1) return columns;
-      const newState = [...columns];
-      newState[colIdx] = { ...newState[colIdx], ...def };
-      setColumns(newState);
-      onColumnChange?.();
-      rebuildRows?.();
-    },
-    [columns]
-  );
-
-  const setColumnsInternal = useRefCallback(
-    (newColumns: SkiaGridColumn<T>[]) => {
-      const newColumnsState = mapToInternalColumns(
-        newColumns,
-        defaultColumnDefs,
-        columnTypes
-      );
-      setColumns(newColumnsState);
-      rebuildRows?.();
-    },
-    [defaultColumnDefs, columnTypes]
-  );
-
-  const getColumnState = useRefCallback(
-    () => columnManager.getColumns(),
-    [columnManager]
-  );
+  // updateColumn / setColumnsInternal / getColumnState / applyColumnState are
+  // produced by useColumnController (the single column-operations facade) and
+  // passed in via deps. They are assembled into the imperative API below.
 
   const clearRows = useRefCallback(() => {
     rowsDataRef.current = [];
@@ -275,26 +251,6 @@ export function useGridController<T extends Object>(
       rowsDataRef.current.forEach((row) => callback(row));
     },
     [rowsDataRef]
-  );
-
-  const applyColumnState = useRefCallback(
-    (args: ApplyColumnStateParams<T>) => {
-      const { state, applyOrder } = args;
-
-      let colDefs = applyOrder && state ? [...state] : [...columns];
-
-      const selectionCol = columns.find((col) => col.checkboxSelection);
-
-      setColumns(
-        (selectionCol
-          ? [selectionCol, ...colDefs]
-          : colDefs) as SkiaInternalGridColumn<T>[]
-      );
-
-      rebuildRows?.();
-      onColumnChange?.();
-    },
-    [columns]
   );
 
   return {

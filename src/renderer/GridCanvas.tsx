@@ -184,15 +184,13 @@ export function createGridCanvas<T extends Object>() {
 
     const { topRowNode, fullHeight, totalHeaderHeight } = useGridLayout();
     const { rows, nodesSelection, setNodesSelection } = useGridSelection();
-    const { columns, setColumns } = useGridColumns();
+    const { columns, selectedColumn, sortStatus, isColumnResizing, filterState } =
+      useGridColumns();
     const {
-      selectedColumn,
+      setColumns,
       setSelectedColumn,
-      sortStatus,
       onColumnChange,
-      isColumnResizing,
       setIsColumnResizing,
-      filterState,
     } = useGridActions();
     const theme = useGridTheme();
     const t = useTokens();

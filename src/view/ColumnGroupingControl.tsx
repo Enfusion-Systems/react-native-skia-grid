@@ -233,14 +233,9 @@ export const ColumnGroupingControl: React.FC<{
     | ((column: SkiaInternalGridColumn[]) => void)
     | undefined;
 }> = ({ onColumnRowGroupChanged }) => {
-  const { columns, setColumns } = useGridColumns();
-  const {
-    onGrouped,
-    setSelectedColumn,
-    rebuildRows,
-    filterState,
-    selectedColumn,
-  } = useGridActions();
+  const { columns, filterState, selectedColumn } = useGridColumns();
+  const { setColumns, onGrouped, setSelectedColumn, rebuildRows } =
+    useGridActions();
   const theme = useGridTheme();
   const cs = useCommonStyles();
 

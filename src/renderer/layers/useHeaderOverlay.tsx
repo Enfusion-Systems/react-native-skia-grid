@@ -7,11 +7,7 @@ import {
   useAnimatedReaction,
 } from "react-native-reanimated";
 
-import {
-  useGridActions,
-  useGridColumns,
-  useGridLayout,
-} from "../../view/context";
+import { useGridColumns, useGridLayout } from "../../view/context";
 import type { ColumnSection, SkiaInternalGridColumn } from "../../core/types";
 import { createHeaderOverlayLayer } from "../gridLayers";
 import {
@@ -38,8 +34,11 @@ export function useHeaderOverlay<T extends Object>(
 
   const { fullHeight, fontManager, totalHeaderHeight, columnGroupPaths } =
     useGridLayout();
-  const { columns: allColumns } = useGridColumns();
-  const { isColumnResizing, selectedColumn } = useGridActions();
+  const {
+    columns: allColumns,
+    isColumnResizing,
+    selectedColumn,
+  } = useGridColumns();
   const theme = useGridTheme();
   const pictures = usePicturesWorklet(sectionWidth, totalHeaderHeight, 0);
 

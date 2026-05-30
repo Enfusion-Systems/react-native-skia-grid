@@ -3,7 +3,7 @@ import * as React from "react";
 import type { LayoutRectangle } from "react-native";
 import type { SharedValue } from "react-native-reanimated";
 
-import { useGridActions, useGridLayout } from "../../view/context";
+import { useGridColumns, useGridLayout } from "../../view/context";
 import {
   type ColumnSection,
   type GridIconType,
@@ -51,7 +51,7 @@ export function useHeaderContent<T extends Object>(
   } = args;
   const { topRowNode, fontManager, totalHeaderHeight, columnGroupPaths } =
     useGridLayout();
-  const { filterState, sortStatus } = useGridActions();
+  const { filterState, sortStatus } = useGridColumns();
   const theme = useGridTheme();
 
   const pictures = usePictures(sectionWidth, totalHeaderHeight, 0);

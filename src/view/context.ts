@@ -37,39 +37,49 @@ export type GridSelectionContextState<T extends Object = any> = {
   getSelectedNodes: () => RowNode<T>[];
 };
 
-// Column metadata. Mutates on resize / reorder / group / pin.
+// Reactive column STATE — the column model plus the derived/interaction state
+// that drives re-renders (which column's menu is open, sort, filter, resize).
+// Split from GridActionsContext (the stable OPERATIONS) below purely along the
+// reactive-vs-stable axis: changes here re-render consumers; the operations
+// never do. All these change on low-frequency user gestures (sort / filter /
+// pin / group / menu open / resize start-end), so they share one context.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type GridColumnsContextState<T extends Object = any> = {
   columns: SkiaInternalGridColumn<T>[];
-  setColumns: (columns: SkiaInternalGridColumn<T>[]) => void;
+  selectedColumn: SkiaInternalGridColumn<T> | null;
+  sortStatus?: MultiColumnSortStatus;
+  filterState: Map<string, ColumnFilterState>;
+  isColumnResizing: boolean;
 };
 
-// Modal-driven actions and selected-column coordination. Read by the column
-// action menus and (for selectedColumn + isColumnResizing) by GridCanvas.
+// Column OPERATIONS — every value here has a STABLE identity (functions wrapped
+// in useRefCallback, useState setters), so this context never re-renders its
+// consumers when the reactive column state above changes. Read by the action
+// menus and the grouping control to mutate columns. Keeping operations apart
+// from state is what lets pure-operation consumers (ActionMenu / PinMenu /
+// AutoSizeMenu) avoid re-rendering on every selectedColumn / sort / filter /
+// resize change.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type GridActionsContextState<T extends Object = any> = {
-  selectedColumn: SkiaInternalGridColumn<T> | null;
+  setColumns: (columns: SkiaInternalGridColumn<T>[]) => void;
   setSelectedColumn: React.Dispatch<
     React.SetStateAction<SkiaInternalGridColumn<T> | null>
   > | null;
-  sortStatus?: MultiColumnSortStatus;
+  setIsColumnResizing: React.Dispatch<React.SetStateAction<boolean>>;
+  setFilterState: (filterState: Map<string, ColumnFilterState>) => void;
+  onColumnChange?: () => void;
+  rebuildRows?: DebouncedFunc<() => void>;
   sortColumn?: (
     column: SkiaInternalGridColumn<T>,
     isLongPressed: boolean,
     sortByAbsoluteValue?: boolean
   ) => void;
-  filterState: Map<string, ColumnFilterState>;
-  setFilterState: (filterState: Map<string, ColumnFilterState>) => void;
   onGrouped?: (
     grouped: boolean,
     selectedColumn: SkiaInternalGridColumn<T>
   ) => void;
   onPinned?: (column: SkiaInternalGridColumn<T>, key: PinActionsType) => void;
-  onColumnChange?: () => void;
-  rebuildRows?: DebouncedFunc<() => void>;
   autoSizeColumns: (selectedColumn: SkiaInternalGridColumn<T>[] | []) => void;
-  isColumnResizing: boolean;
-  setIsColumnResizing: React.Dispatch<React.SetStateAction<boolean>>;
   updateColumnWidthCache: (
     updateWidths: Record<string, number>[],
     removeWidths: Record<string, number>[]
@@ -96,17 +106,17 @@ export const GridSelectionContext =
 
 export const GridColumnsContext = React.createContext<GridColumnsContextState>({
   columns: [],
-  setColumns: () => null,
+  selectedColumn: null,
+  filterState: new Map(),
+  isColumnResizing: false,
 });
 
 export const GridActionsContext = React.createContext<GridActionsContextState>({
-  selectedColumn: null,
+  setColumns: () => null,
   setSelectedColumn: null,
-  filterState: new Map(),
+  setIsColumnResizing: () => null,
   setFilterState: () => null,
   autoSizeColumns: () => null,
-  isColumnResizing: false,
-  setIsColumnResizing: () => null,
   updateColumnWidthCache: () => null,
 });
 

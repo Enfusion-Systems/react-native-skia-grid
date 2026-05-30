@@ -16,7 +16,6 @@ import * as React from "react";
 import { Platform } from "react-native";
 
 import { GroupCellRenderer } from "../renderer/cellRenderers/GroupCellRenderer";
-import { SelectionCellRenderer } from "../renderer/cellRenderers/SelectionCellRenderer";
 import { GridProviders } from "./GridProviders";
 import { createGridCanvas } from "../renderer/GridCanvas";
 import {
@@ -24,7 +23,6 @@ import {
   EngineHost,
   FilterParams,
   MultiColumnSortStatus,
-  PinActionsType,
   PinnedStatuses,
   RowGroupOption,
   RowNode,
@@ -35,7 +33,6 @@ import {
   SkiaInternalGridColumn,
 } from "../core/types";
 import {
-  CELL_PADDING,
   DEFAULT_FILTER_DEBOUNCE_MS,
   GROUP_COLUMN_ID,
   GROUP_COLUMN_NAME,
@@ -44,6 +41,7 @@ import {
   ROW_HEIGHT_DEFAULT,
 } from "../utils/constants";
 import { getFont } from "../renderer/drawing/fontUtils";
+import { useColumnController } from "./useColumnController";
 import { useColumnWidthCache } from "./useColumnWidthCache";
 import { useEngineStore } from "./useEngineStore";
 import { useGridController } from "./useGridController";
@@ -419,7 +417,7 @@ export function createGridComp<T extends Object>() {
       []
     );
 
-    const setFilterState = React.useCallback(
+    const setFilterState = useRefCallback(
       (filterState: Map<string, ColumnFilterState>) => {
         const sortedMap = new Map(
           [...filterState]
@@ -436,149 +434,44 @@ export function createGridComp<T extends Object>() {
       [engine, onFilterChanged]
     );
 
-    // View-layer wrapper around the SetColumns command. Injects the React
-    // SelectionCellRenderer (which can't live in pure-TS core), then hands the
-    // list to ColumnManager which derives sortStatus + groupedColumns and emits
-    // events. The synthetic group column is NOT injected here: it is layered on
-    // the read path (the `columns` memo above) so it also covers the grouping
-    // commands that bypass this wrapper (SetColumns at mount, ToggleGroup).
-    const setColumns = useRefCallback((cols: SkiaInternalGridColumn<T>[]) => {
-      setSelectedColumn(null);
-      let newColumns = [...cols];
-      const selectionCol = newColumns.find((col) => col.checkboxSelection);
-      if (selectionCol) {
-        newColumns = [
-          {
-            ...selectionCol,
-            cellRenderer: SelectionCellRenderer,
-            width: 30,
-            pinned: "left",
-            canPinned: false,
-            sortable: false,
-            canResize: false,
-            canFilter: false,
-            canGrouped: false,
-          },
-          ...newColumns.filter(
-            (col) =>
-              col.checkboxSelection === false || col.colId !== "selection"
-          ),
-        ];
-      }
-      engine.dispatch({
-        type: ColumnCommandTypes.SetColumns,
-        columns: newColumns,
-      } as ColumnManagerCommand<T>);
-    }, []);
-
-    const onGrouped = useRefCallback(
-      (grouped: boolean, selectedColumn: SkiaInternalGridColumn<T>) => {
-        if (!selectedColumn) return;
-
-        // 1. Pure column-state mutation → ColumnManager. The handler computes
-        //    the new columns array with rowGroupIndex shuffling.
-        engine.dispatch({
-          type: ColumnCommandTypes.ToggleGroup,
-          column: selectedColumn,
-          grouped,
-          suppressGroupChangesColumnVisibility:
-            !!suppressGroupChangesColumnVisibility,
-        } as ColumnManagerCommand<T>);
-
-        // 2. Grouping is a terminal action from the column action sheet, so
-        //    close the sheet deterministically. (Injecting/removing the group
-        //    column changes the rendered column list, which @gorhom reacts to
-        //    by dismissing the sheet anyway; doing it explicitly keeps the
-        //    behavior predictable instead of timing-dependent. Ungroup is then
-        //    driven from the grouping pill's ✕.)
-        setSelectedColumn(null);
-
-        // 3. On ungroup, drop stale group-row selection entries at the
-        //    just-removed level. Dispatched explicitly (not via a manager
-        //    subscription) because SelectionManager.rows is refreshed by
-        //    the RowsChanged that follows ColumnsChanged — by the time a
-        //    GroupChanged-subscription handler would fire, `rows` is the
-        //    NEW pipeline output, which would clear the wrong level.
-        if (!grouped && typeof selectedColumn.rowGroupIndex === "number") {
-          engine.dispatch({
-            type: SelectionCommandTypes.ClearGroupAtLevel,
-            level: selectedColumn.rowGroupIndex,
-          } as SelectionCommand<T>);
-        }
-
-        // 3. Skia-specific group-column header width recompute. Stays in
-        //    the view layer — pure-TS core mustn't depend on Skia font
-        //    measurement. Reads the *new* grouped columns from the
-        //    manager so we don't have to reproduce the rowGroupIndex
-        //    derivation.
-        const newGroupedColumns = columnManager.getGroupedColumns();
-        recomputeGroupColumnWidth(newGroupedColumns);
-
-        onColumnRowGroupChanged?.(newGroupedColumns);
-        rebuildRows();
-        onColumnChange?.();
-      },
-      [engine, columnManager, recomputeGroupColumnWidth]
+    // Stable wrapper so the actions context identity doesn't churn if the
+    // consumer passes a fresh onColumnChange each render.
+    const handleColumnChange = useRefCallback(
+      () => onColumnChange?.(),
+      [onColumnChange]
     );
 
-    const sortColumn = useRefCallback(
-      (
-        column: SkiaInternalGridColumn<T>,
-        isLongPressed: boolean,
-        sortByAbsoluteValue?: boolean
-      ) => {
-        isMultiSortEnabled.current = isLongPressed;
-        engine.dispatch({
-          type: ColumnCommandTypes.ToggleSort,
-          column,
-          isLongPressed,
-          sortByAbsoluteValue,
-        } as ColumnManagerCommand<T>);
-        onColumnChange?.();
-        rebuildRows();
-      },
-      [engine, onColumnChange]
-    );
-
-    const onPinned = useRefCallback(
-      (col: SkiaInternalGridColumn<T>, key: PinActionsType) => {
-        if (col) {
-          const idx = columns.findIndex((x) => x.__id === col.__id);
-          const newState = [...columns];
-          newState[idx] = { ...col, pinned: key };
-          setColumns(newState);
-        }
-        onColumnChange?.();
-      },
-      [setColumns, columns, onColumnChange]
-    );
-
-    const autoSizeColumns = useRefCallback(
-      (cols: SkiaInternalGridColumn<T>[] | []) => {
-        const newColumns = columns.reduce<SkiaInternalGridColumn<T>[]>(
-          (res, col) => {
-            if (!cols.find((x) => x.__id === col.__id)) {
-              res.push(col);
-            } else {
-              if (!columnWidthMap.current.has(col.__id)) {
-                columnWidthMap.current.set(col.__id, col.width);
-              }
-              res.push({
-                ...col,
-                width: Math.ceil(
-                  columnWidthMap.current.get(col.__id)! + 2 * CELL_PADDING
-                ),
-              });
-            }
-            return res;
-          },
-          [] as SkiaInternalGridColumn<T>[]
-        );
-        setColumns(newColumns);
-        onColumnChange?.();
-      },
-      [setColumns, columns, columnWidthMap.current]
-    );
+    // The single home for every column OPERATION. Wraps ColumnManager command
+    // dispatches and composes the view-only side effects (Skia group-width
+    // recompute, modal-state reset, rebuildRows, callbacks). Its methods have
+    // stable identity, so the actions context built from them never re-renders
+    // its consumers on reactive state changes. See useColumnController.
+    const columnController = useColumnController<T>({
+      engine,
+      columnManager,
+      columns,
+      columnWidthMap,
+      recomputeGroupColumnWidth,
+      setSelectedColumn,
+      rebuildRows,
+      isMultiSortEnabled,
+      onColumnChange: handleColumnChange,
+      onColumnRowGroupChanged,
+      suppressGroupChangesColumnVisibility,
+      defaultColumnDefs,
+      columnTypes,
+    });
+    const {
+      setColumns,
+      onGrouped,
+      sortColumn,
+      onPinned,
+      autoSizeColumns,
+      updateColumn,
+      setColumnsInternal,
+      getColumnState,
+      applyColumnState,
+    } = columnController;
 
     // Debounced filter-state propagation. Lives in this section because it's
     // a column-state side effect: the filterState subscription value (from
@@ -694,7 +587,6 @@ export function createGridComp<T extends Object>() {
       nodesSelection,
       rowHeight,
       fullHeight,
-      setColumns,
       setSelectedColumn,
       setNodesSelection,
       setTopRowNode,
@@ -702,8 +594,6 @@ export function createGridComp<T extends Object>() {
       columnManager,
       gridCoreApiRef,
       getRowId,
-      defaultColumnDefs,
-      columnTypes,
       onColumnChange,
       onSelectionChanged,
       onRowsUpdated,
@@ -714,6 +604,11 @@ export function createGridComp<T extends Object>() {
       updateRowSelectionState,
       deselectAll,
       updateColumnWidthCache,
+      // Column API methods now produced by the column controller.
+      updateColumn,
+      setColumnsInternal,
+      getColumnState,
+      applyColumnState,
     });
 
     React.useImperativeHandle(ref, () => controller);
@@ -745,43 +640,50 @@ export function createGridComp<T extends Object>() {
       [rows, nodesSelection, setNodesSelection, getSelectedNodes]
     );
 
+    // Reactive column state. Re-renders its consumers when any of these change
+    // (all low-frequency user gestures). setColumns + the other operations live
+    // in the stable actionsValue below, so changes here don't churn op-only
+    // consumers.
     const columnsValue = React.useMemo(
-      () => ({ columns, setColumns }),
-      [columns, setColumns]
+      () => ({
+        columns,
+        selectedColumn,
+        sortStatus,
+        filterState,
+        isColumnResizing,
+      }),
+      [columns, selectedColumn, sortStatus, filterState, isColumnResizing]
     );
 
+    // Stable column OPERATIONS. Every member has a stable identity, so this memo
+    // never changes identity → op-only consumers (ActionMenu / PinMenu /
+    // AutoSizeMenu) don't re-render when the reactive state above changes.
     const actionsValue = React.useMemo(
       () => ({
-        selectedColumn,
+        setColumns,
         setSelectedColumn,
-        sortStatus,
-        sortColumn,
-        filterState,
+        setIsColumnResizing,
         setFilterState,
+        onColumnChange: handleColumnChange,
+        rebuildRows,
+        sortColumn,
         onGrouped,
         onPinned,
-        onColumnChange,
-        rebuildRows,
         autoSizeColumns,
-        isColumnResizing,
-        setIsColumnResizing,
         updateColumnWidthCache,
         resetColumnWidthCache,
       }),
       [
-        selectedColumn,
+        setColumns,
         setSelectedColumn,
-        sortStatus,
-        sortColumn,
-        filterState,
+        setIsColumnResizing,
         setFilterState,
+        handleColumnChange,
+        rebuildRows,
+        sortColumn,
         onGrouped,
         onPinned,
-        onColumnChange,
-        rebuildRows,
         autoSizeColumns,
-        isColumnResizing,
-        setIsColumnResizing,
         updateColumnWidthCache,
         resetColumnWidthCache,
       ]
