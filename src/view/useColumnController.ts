@@ -5,6 +5,7 @@ import type {
   EngineHost,
   PinActionsType,
   SkiaGridColumn,
+  SkiaGridColumnDef,
   SkiaInternalGridColumn,
 } from "../core/types";
 import { useRefCallback } from "../internal/hooks";
@@ -19,7 +20,12 @@ import {
 } from "../core/managers/SelectionManager";
 import { SelectionCellRenderer } from "../renderer/cellRenderers/SelectionCellRenderer";
 import { CELL_PADDING } from "../utils/constants";
-import { mapToInternalColumns } from "../utils/gridUtils";
+import {
+  columnDefsContentEqual,
+  flattenColumnDefs,
+  mapToInternalColumns,
+  mergeColumnDefsWithState,
+} from "../utils/gridUtils";
 
 // Inputs the column facade needs. All are already owned elsewhere in DataGrid
 // (managers, the projected `columns`, the Skia width cache, modal-state setter,
@@ -74,6 +80,9 @@ export type ColumnController<T extends Object> = {
   setColumnsInternal: (newColumns: SkiaGridColumn<T>[]) => void;
   getColumnState: () => SkiaInternalGridColumn<T>[];
   applyColumnState: (args: ApplyColumnStateParams<T>) => void;
+  // Reconcile a changed `columnDefs` prop into live column state (called from
+  // DataGrid's prop-sync effect). No-op when content is unchanged.
+  syncColumnDefs: (columnDefs: SkiaGridColumnDef<T>[]) => void;
 };
 
 /**
@@ -312,6 +321,68 @@ export function useColumnController<T extends Object>(
     [columns, setColumns, rebuildRows, onColumnChange]
   );
 
+  // ── columnDefs prop reconciliation ─────────────────────────────────────────
+  // The ColumnManager is bootstrapped from `columnDefs` at mount (in DataGrid's
+  // useMemo) and thereafter owns the columns; without this, a consumer holding
+  // `columnDefs` in React state and updating it would be silently ignored.
+  // `previousColumnDefsRef` doubles as the merge BASE — "what the consumer last
+  // declared" — for the three-way merge in mergeColumnDefsWithState.
+  const previousColumnDefsRef = React.useRef<SkiaGridColumnDef<T>[] | null>(
+    null
+  );
+  const columnDefsSyncedRef = React.useRef(false);
+
+  const syncColumnDefs = useRefCallback(
+    (columnDefs: SkiaGridColumnDef<T>[]) => {
+      // First invocation corresponds to mount, where the bootstrap already set
+      // the columns — record the baseline and bail so we don't redispatch.
+      if (!columnDefsSyncedRef.current) {
+        columnDefsSyncedRef.current = true;
+        previousColumnDefsRef.current = columnDefs;
+        return;
+      }
+
+      const prev = previousColumnDefsRef.current;
+      // Content gate (ignores function identity). Skips the common case of a
+      // consumer passing a structurally-identical-but-fresh array each render,
+      // which both avoids needless work and breaks the dispatch→re-render loop.
+      if (prev && columnDefsContentEqual(prev, columnDefs)) return;
+
+      const merged = mergeColumnDefsWithState<T>(
+        mapToInternalColumns<T>(
+          flattenColumnDefs<T>(prev ?? []),
+          defaultColumnDefs,
+          columnTypes
+        ),
+        mapToInternalColumns<T>(
+          flattenColumnDefs<T>(columnDefs),
+          defaultColumnDefs,
+          columnTypes
+        ),
+        columnManager.getColumns()
+      );
+
+      previousColumnDefsRef.current = columnDefs;
+
+      // Route through setColumns so selection-column normalization and
+      // sort/group derivation run exactly as for every other runtime mutation.
+      // Dispatch is synchronous, so the manager's grouped set is current here.
+      setColumns(merged);
+      recomputeGroupColumnWidth(columnManager.getGroupedColumns());
+      rebuildRows();
+      onColumnChange?.();
+    },
+    [
+      defaultColumnDefs,
+      columnTypes,
+      columnManager,
+      setColumns,
+      recomputeGroupColumnWidth,
+      rebuildRows,
+      onColumnChange,
+    ]
+  );
+
   return {
     setColumns,
     onGrouped,
@@ -322,5 +393,6 @@ export function useColumnController<T extends Object>(
     setColumnsInternal,
     getColumnState,
     applyColumnState,
+    syncColumnDefs,
   };
 }

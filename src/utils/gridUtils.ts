@@ -588,8 +588,10 @@ export {
 export {
   buildColGroupDepthMap,
   buildColumnGroupPaths,
+  columnDefsContentEqual,
   computeColumnGroupHeaders,
   flattenColumnDefs,
   isColGroupDef,
   mapToInternalColumns,
+  mergeColumnDefsWithState,
 } from "./columnGroupUtils";

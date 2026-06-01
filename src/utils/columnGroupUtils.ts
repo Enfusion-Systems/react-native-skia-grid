@@ -1,3 +1,5 @@
+import { isEqualWith } from "lodash";
+
 import type {
   ColumnGroupHeader,
   ColumnGroupPath,
@@ -124,4 +126,107 @@ export function mapToInternalColumns<T extends Object>(
     __id: i.id ?? `${idx}`,
     colId: i.colId ?? i.field,
   }));
+}
+
+// Column properties a user mutates through grid interactions (resize, sort,
+// pin, hide, group). On a `columnDefs` prop change these are preserved from
+// the live column state — UNLESS the consumer changed the same property in
+// the defs. Everything else (declarative props: name, field, renderers,
+// formatters, …) always takes the new definition.
+const RUNTIME_STATE_KEYS = [
+  "width",
+  "sort",
+  "sortIndex",
+  "sortByAbsoluteValue",
+  "pinned",
+  "hide",
+  "rowGroup",
+  "rowGroupIndex",
+] as const;
+
+// Durable identity for matching a column across a defs change. `colId`
+// (derived from `field` by mapToInternalColumns when absent) is stable; `__id`
+// can be index-based when the consumer omits explicit ids, so it's only a
+// fallback.
+function columnMergeKey<T extends Object>(
+  col: SkiaInternalGridColumn<T>
+): string {
+  return col.colId ?? col.field ?? col.__id;
+}
+
+// `undefined` and `null` both mean "unset" for these optional props; treat
+// them as equal so a consumer keeping a prop unset isn't mistaken for an
+// intentional change that would clobber the user's live value.
+function declaredEqual(a: unknown, b: unknown): boolean {
+  return (a ?? null) === (b ?? null);
+}
+
+/**
+ * Per-property three-way merge for reconciling a changed `columnDefs` prop
+ * into live column state:
+ *   - base    = the previously declared columns (what the consumer last said)
+ *   - next    = the newly declared columns (what the consumer says now)
+ *   - current = the manager's live columns (incl. the user's runtime gestures)
+ *
+ * For each runtime-state property (width/sort/pin/hide/group), the new
+ * definition wins only when the consumer actually changed it in the defs
+ * (`next !== base`); otherwise the user's live value is preserved. All other
+ * properties take the new definition outright. Matching is by colId; genuinely
+ * new columns (and columns with no live counterpart) pass through unchanged.
+ */
+export function mergeColumnDefsWithState<T extends Object>(
+  baseDeclared: SkiaInternalGridColumn<T>[],
+  nextDeclared: SkiaInternalGridColumn<T>[],
+  current: SkiaInternalGridColumn<T>[]
+): SkiaInternalGridColumn<T>[] {
+  const baseByKey = new Map(
+    baseDeclared.map((c) => [columnMergeKey(c), c] as const)
+  );
+  const currentByKey = new Map(
+    current.map((c) => [columnMergeKey(c), c] as const)
+  );
+
+  return nextDeclared.map((next) => {
+    const key = columnMergeKey(next);
+    const base = baseByKey.get(key);
+    const live = currentByKey.get(key);
+    // Newly declared column, or no live counterpart → declared def wins as-is.
+    if (!base || !live) return next;
+
+    const merged: SkiaInternalGridColumn<T> = { ...next };
+    // Indexing a column by a union of keys for a write narrows to `never` in
+    // TS, so go through a string-keyed view for the per-property copy.
+    const nextRec = next as Record<string, unknown>;
+    const baseRec = base as Record<string, unknown>;
+    const liveRec = live as Record<string, unknown>;
+    const mergedRec = merged as Record<string, unknown>;
+    for (const prop of RUNTIME_STATE_KEYS) {
+      // Consumer left this property unchanged in the defs → keep the user's
+      // live runtime value. Consumer changed it → `merged` already holds the
+      // new declared value (it's spread from `next`).
+      if (declaredEqual(nextRec[prop], baseRec[prop])) {
+        mergedRec[prop] = liveRec[prop];
+      }
+    }
+    return merged;
+  });
+}
+
+/**
+ * Value-equality for two `columnDefs` trees that treats any two functions as
+ * equal. Gates `columnDefs` reconciliation: consumers routinely rebuild
+ * columnDefs (with inline cellRenderer/valueGetter functions) fresh on every
+ * render, and those identity-only changes must not trigger a re-sync (doing so
+ * would dispatch — and re-render — on every render). Trade-off: a lone
+ * function swap (e.g. a new inline cellRenderer with no other change) isn't
+ * detected until the next declared change; memoize columnDefs to apply such a
+ * change immediately.
+ */
+export function columnDefsContentEqual<T extends Object>(
+  a: SkiaGridColumnDef<T>[],
+  b: SkiaGridColumnDef<T>[]
+): boolean {
+  return isEqualWith(a, b, (av: unknown, bv: unknown) =>
+    typeof av === "function" && typeof bv === "function" ? true : undefined
+  );
 }

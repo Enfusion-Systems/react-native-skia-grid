@@ -24,7 +24,6 @@ import {
   FilterParams,
   MultiColumnSortStatus,
   PinnedStatuses,
-  RowGroupOption,
   RowNode,
   SkiaGridAPI,
   SkiaGridColumn,
@@ -45,6 +44,7 @@ import { useColumnController } from "./useColumnController";
 import { useColumnWidthCache } from "./useColumnWidthCache";
 import { useEngineStore } from "./useEngineStore";
 import { useGridController } from "./useGridController";
+import { useRowController } from "./useRowController";
 import {
   buildColumnGroupPaths,
   flattenColumnDefs,
@@ -355,50 +355,36 @@ export function createGridComp<T extends Object>() {
     // #endregion
     // #region SECTION 7: SELECTION ACTIONS ══════════════════════════════════════
 
-    // setNodesSelection preserves the legacy React-style setter contract
-    // for the GridSelectionContext value. It dispatches a Set command so
-    // the SelectionManager remains the single source of truth.
-    const setNodesSelection: React.Dispatch<
-      React.SetStateAction<Map<string, 0 | 1 | 2>>
-    > = useRefCallback((value) => {
-      const next =
-        typeof value === "function"
-          ? (value as (prev: Map<string, 0 | 1 | 2>) => Map<string, 0 | 1 | 2>)(
-              selectionManager.getNodesSelection()
-            )
-          : value;
-      engine.dispatch({
-        type: SelectionCommandTypes.Set,
-        nodesSelection: next,
-      } as SelectionCommand<T>);
-    }, [engine, selectionManager]);
-
-    const updateRowNodeSelection = useRefCallback(
-      (row: RowNode<T>) => {
-        engine.dispatch({
-          type: SelectionCommandTypes.Toggle,
-          row,
-        } as SelectionCommand<T>);
-      },
-      [engine]
-    );
-
-    const updateRowSelectionState = useRefCallback(
-      (rowId: string, selected: boolean) => {
-        engine.dispatch({
-          type: SelectionCommandTypes.SetById,
-          rowId,
-          selected,
-        } as SelectionCommand<T>);
-      },
-      [engine]
-    );
-
-    const deselectAll = useRefCallback(() => {
-      engine.dispatch({
-        type: SelectionCommandTypes.Clear,
-      } as SelectionCommand<T>);
-    }, [engine]);
+    // The single home for every ROW / SELECTION operation — the row-side
+    // counterpart of useColumnController. Wraps RowManager / SelectionManager
+    // command dispatches and composes the view side effects. Its methods have
+    // stable identity, so the selection context built from them never churns
+    // from operation refs. See useRowController.
+    const rowController = useRowController<T>({
+      engine,
+      rowManager,
+      selectionManager,
+      rows,
+      columns,
+      nodesSelection,
+      rowsDataRef,
+      gridCoreApiRef,
+      setTopRowNode,
+      setSelectedColumn,
+      getRowId,
+      onSelectionChanged,
+      onRowsUpdated,
+      onRowGroupOpened,
+      font,
+      updateColumnWidthCache,
+    });
+    const {
+      setNodesSelection,
+      getSelectedNodes,
+      updateRowNodeSelection,
+      setRowExpandedState,
+      toggleAllSelection,
+    } = rowController;
 
     // #endregion
     // #region SECTION 8: COLUMN ACTIONS ═════════════════════════════════════════
@@ -471,7 +457,19 @@ export function createGridComp<T extends Object>() {
       setColumnsInternal,
       getColumnState,
       applyColumnState,
+      syncColumnDefs,
     } = columnController;
+
+    // Reconcile consumer-driven columnDefs changes (e.g. columnDefs held in
+    // React state) into the ColumnManager, which otherwise only reads
+    // columnDefs at mount. The first-run, content-equality, and three-way
+    // merge guards all live inside syncColumnDefs — so the mount run and any
+    // identity-only churn are no-ops, and user runtime gestures (width/sort/
+    // pin/group/visibility) survive unless the consumer changed that property
+    // in the defs. See useColumnController.syncColumnDefs.
+    React.useEffect(() => {
+      syncColumnDefs(columnDefs);
+    }, [columnDefs, syncColumnDefs]);
 
     // Debounced filter-state propagation. Lives in this section because it's
     // a column-state side effect: the filterState subscription value (from
@@ -494,25 +492,9 @@ export function createGridComp<T extends Object>() {
     );
 
     // #endregion
-    // #region SECTION 9: ROW ACTIONS ════════════════════════════════════════════
-
-    const setRowExpandedState = useRefCallback(
-      (row: RowNode<T>, expand: boolean, options?: RowGroupOption<T>) => {
-        engine.dispatch({
-          type: RowCommandTypes.SetRowExpanded,
-          row,
-          expand,
-          options,
-        } as RowManagerCommand<T>);
-        onRowGroupOpened?.({
-          node: { ...row, expanded: expand },
-        });
-      },
-      [engine, onRowGroupOpened]
-    );
-
-    // #endregion
-    // #region SECTION 10: INTERACTION HANDLERS ══════════════════════════════════
+    // #region SECTION 9: INTERACTION HANDLERS ══════════════════════════════════
+    // (Row/selection operations now live in useRowController, instantiated in
+    // SECTION 7. These handlers route press events to those operations.)
 
     const handleRowPress = useRefCallback(
       (row: RowNode<T>, col: SkiaGridColumn<T>, pressCount: number) => {
@@ -534,12 +516,10 @@ export function createGridComp<T extends Object>() {
       (col: SkiaGridColumn<T>, pressCount?: number) => {
         onHeaderRowPress?.(col, pressCount);
         if (col.headerCheckboxSelection) {
-          engine.dispatch({
-            type: SelectionCommandTypes.ToggleAll,
-          } as SelectionCommand<T>);
+          toggleAllSelection();
         }
       },
-      [engine, onHeaderRowPress]
+      [toggleAllSelection, onHeaderRowPress]
     );
 
     // #endregion
@@ -579,32 +559,14 @@ export function createGridComp<T extends Object>() {
     // #endregion
     // #region SECTION 12: IMPERATIVE API ════════════════════════════════════════
 
+    // Thin assembler: merges the Skia core API with the row + column controller
+    // methods into the public SkiaGridAPI. No operation logic lives here.
     const controller = useGridController<T>({
-      engine,
-      rowManager,
-      rows,
-      columns,
-      nodesSelection,
-      rowHeight,
-      fullHeight,
-      setSelectedColumn,
-      setNodesSelection,
-      setTopRowNode,
-      rowsDataRef,
-      columnManager,
       gridCoreApiRef,
-      getRowId,
-      onColumnChange,
-      onSelectionChanged,
-      onRowsUpdated,
-      font,
+      rowController,
       setFilterState,
       rebuildRows,
-      setRowExpandedState,
-      updateRowSelectionState,
-      deselectAll,
-      updateColumnWidthCache,
-      // Column API methods now produced by the column controller.
+      // Column API methods (from useColumnController).
       updateColumn,
       setColumnsInternal,
       getColumnState,
@@ -612,8 +574,6 @@ export function createGridComp<T extends Object>() {
     });
 
     React.useImperativeHandle(ref, () => controller);
-
-    const getSelectedNodes = controller.getSelectedNodes;
 
     // #endregion
     // #region SECTION 13: CONTEXT VALUES ════════════════════════════════════════
