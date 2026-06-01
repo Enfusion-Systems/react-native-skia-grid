@@ -24,8 +24,6 @@ yarn build
 
 ## Architecture
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for the layered architecture overview:
-
 - **Core**: Pure TypeScript orchestration, managers, and pipeline functions
 - **View**: React hooks and context bindings
 - **Renderer**: Skia canvas drawing and gesture handling
