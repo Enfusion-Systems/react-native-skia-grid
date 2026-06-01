@@ -1,0 +1,54 @@
+# Nightly full regression + benchmark drift tracking. Runs the complete Detox
+# suite and records a fresh benchmark report (uploaded as an artifact) so perf
+# drift is visible over time. Does not assert on benchmark deltas (informational
+# nightly trend); regressions are gated on PRs via e2e-full.yml.
+#
+# Android is intentionally deferred until Skia text metrics are validated for
+# snapshots (see docs/skia-grid-refactor.md open question §5.3).
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # 02:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  ios-nightly:
+    name: iOS full suite + bench (drift)
+    runs-on: macos-14
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install applesimutils
+        run: |
+          brew tap wix/brew
+          brew install applesimutils
+      - name: Install (example)
+        working-directory: example
+        run: yarn install --frozen-lockfile
+      - name: Build (Detox debug)
+        working-directory: example
+        run: yarn build:ios
+      - name: Start Metro
+        working-directory: example
+        run: |
+          yarn start &
+          timeout 90 bash -c 'until curl -sf http://localhost:8081/status | grep -q packager-status:running; do sleep 2; done'
+      - name: Full e2e suite
+        working-directory: example
+        run: yarn e2e:ios --cleanup --headless --record-logs all
+      - name: Perf benchmarks (record report)
+        working-directory: example
+        run: yarn bench:ios --cleanup --headless
+      - name: Upload reports + artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-${{ github.run_id }}
+          path: |
+            benchmarks/reports
+            example/.artifacts
+          if-no-files-found: ignore
