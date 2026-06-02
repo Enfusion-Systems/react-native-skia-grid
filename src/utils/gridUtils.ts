@@ -22,7 +22,7 @@ import {
   type SkiaGridColumn,
   type SkiaInternalGridColumn,
 } from "../core/types";
-import { GROUP_KEY_SEPARATOR } from "./constants";
+import { GROUP_BLANK_VALUE, GROUP_KEY_SEPARATOR } from "./constants";
 import { translationClamp } from "../renderer/sectionWidthUtils";
 import { getTextWidth } from "../renderer/drawing/fontUtils";
 
@@ -520,13 +520,29 @@ export function getColumnAtX<T extends Object>(
   return cols[idx];
 }
 
+// Group keys are built by joining each level's value with GROUP_KEY_SEPARATOR
+// ("§"). A raw "§" inside a value would corrupt that join — keys would split at
+// the wrong places and parent/descendant matching (startsWith / lastIndexOf)
+// would mis-fire, silently merging or mis-nesting groups. Percent-encode the
+// separator (and "%" itself, so the encoding is reversible) per segment so a
+// key contains "§" only as the real delimiter. Both are identity for
+// separator-free values, so normal data is unaffected.
+export const encodeGroupKeySegment = (value: string): string =>
+  value.split("%").join("%25").split(GROUP_KEY_SEPARATOR).join("%A7");
+
+export const decodeGroupKeySegment = (segment: string): string =>
+  segment.split("%A7").join(GROUP_KEY_SEPARATOR).split("%25").join("%");
+
 export function getParentRowNodeKeys<T extends Object>(
   row: RowNode<T>,
   cols: SkiaInternalGridColumn<T>[]
 ) {
   const values = cols.map((col) => {
     const [columnValue] = getDisplayValue(col, row);
-    return columnValue?.toString().length ? columnValue.toString() : "__Blank__";
+    const raw = columnValue?.toString().length
+      ? columnValue.toString()
+      : GROUP_BLANK_VALUE;
+    return encodeGroupKeySegment(raw);
   });
 
   return values.reduce<string[]>((res, value) => {

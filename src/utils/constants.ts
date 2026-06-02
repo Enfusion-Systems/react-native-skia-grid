@@ -39,3 +39,7 @@ export const FONT_WIDTH_ADJ_MULTIPLIER = 1.09;
 export const GROUP_KEY_SEPARATOR = "§";
 export const GROUP_COLUMN_ID = "__GROUP__";
 export const GROUP_COLUMN_NAME = "Group";
+// Sentinel for a blank grouped value: getParentRowNodeKeys emits it as a group
+// key segment, and the group pipeline maps it back to "" for display. Shared by
+// both sides so they can never drift (a duplicated literal previously did).
+export const GROUP_BLANK_VALUE = "__Blank__";

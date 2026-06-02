@@ -387,8 +387,9 @@ export class ColumnManager<T extends Object = Object> implements Manager {
     suppressGroupChangesColumnVisibility: boolean
   ): SkiaInternalGridColumn<T>[] {
     if (!selectedColumn) return this.columns;
+    
     const existingGroupedCount = this.columns.filter(
-      (col) => col.rowGroup
+      (col) => col.rowGroup && col.id !== selectedColumn.id
     ).length;
 
     return this.columns.reduce<SkiaInternalGridColumn<T>[]>((res, col) => {

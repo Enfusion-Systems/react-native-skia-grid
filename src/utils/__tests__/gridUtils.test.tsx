@@ -24,7 +24,9 @@ import {
   checkIndexes,
   computeColumnGroupHeaders,
   createOptions,
+  decodeGroupKeySegment,
   deriveIndexes,
+  encodeGroupKeySegment,
   flattenColumnDefs,
   getColumnAtX,
   getColumnValue,
@@ -249,12 +251,13 @@ describe("gridUtils", () => {
       ];
 
       const result = buildColumnGroupPaths(defs);
+      const groupAId = JSON.stringify(["Group A"]);
       expect(result.size).toBe(2);
       expect(result.get("col_a")).toEqual([
-        { headerName: "Group A", depth: 0 },
+        { headerName: "Group A", depth: 0, groupId: groupAId },
       ]);
       expect(result.get("col_b")).toEqual([
-        { headerName: "Group A", depth: 0 },
+        { headerName: "Group A", depth: 0, groupId: groupAId },
       ]);
     });
 
@@ -276,8 +279,16 @@ describe("gridUtils", () => {
       const result = buildColumnGroupPaths(defs);
       const path = result.get("col_a") as ColumnGroupPath;
       expect(path).toHaveLength(2);
-      expect(path[0]).toEqual({ headerName: "Outer", depth: 0 });
-      expect(path[1]).toEqual({ headerName: "Inner", depth: 1 });
+      expect(path[0]).toEqual({
+        headerName: "Outer",
+        depth: 0,
+        groupId: JSON.stringify(["Outer"]),
+      });
+      expect(path[1]).toEqual({
+        headerName: "Inner",
+        depth: 1,
+        groupId: JSON.stringify(["Outer", "Inner"]),
+      });
     });
   });
 
@@ -302,6 +313,43 @@ describe("gridUtils", () => {
       expect(result[0].headerName).toBe("Group A");
       expect(result[0].colSpan).toBe(2);
       expect(result[0].startColIndex).toBe(0);
+    });
+
+    it("does not merge same-named sibling groups under different parents", () => {
+      // Two distinct "Details" groups at the same depth, under different
+      // parents, rendered adjacently. They must stay separate single-column
+      // headers, not coalesce into one span (the parent-path groupId fix).
+      const defs: SkiaGridColumnDef<TestData>[] = [
+        {
+          headerName: "Parent 1",
+          children: [
+            {
+              headerName: "Details",
+              children: [
+                { name: "Col A", field: "col_a", width: 100, colId: "col_a" },
+              ],
+            },
+          ],
+        },
+        {
+          headerName: "Parent 2",
+          children: [
+            {
+              headerName: "Details",
+              children: [
+                { name: "Col B", field: "col_b", width: 80, colId: "col_b" },
+              ],
+            },
+          ],
+        },
+      ];
+      const paths = buildColumnGroupPaths(defs);
+
+      const result = computeColumnGroupHeaders(mockInternalColumns, paths);
+
+      const details = result.filter((h) => h.headerName === "Details");
+      expect(details).toHaveLength(2);
+      details.forEach((h) => expect(h.colSpan).toBe(1));
     });
   });
 
@@ -986,6 +1034,84 @@ describe("gridUtils", () => {
       expect(result).toHaveLength(2);
       expect(result[0]).toBe("A");
       expect(result[1]).toBe(`A${GROUP_KEY_SEPARATOR}Alice`);
+    });
+
+    it("encodes a separator inside a value so it can't forge an extra level", () => {
+      const col: SkiaInternalGridColumn<TestData> = {
+        id: "date",
+        __id: "date",
+        __index: 0,
+        name: "Date",
+        field: "date",
+        width: 80,
+        colId: "date",
+      };
+      const row: RowNode<TestData> = {
+        children: [],
+        level: 0,
+        __id: "r1",
+        __index: 0,
+        data: { col_a: "x", col_b: 0, date: `A${GROUP_KEY_SEPARATOR}B` },
+      };
+
+      const [key] = getParentRowNodeKeys(row, [col]);
+      // A raw "§" in the value must not survive as a delimiter (it would
+      // otherwise look like two grouping levels), and must round-trip back.
+      expect(key.split(GROUP_KEY_SEPARATOR)).toHaveLength(1);
+      expect(decodeGroupKeySegment(key)).toBe(`A${GROUP_KEY_SEPARATOR}B`);
+    });
+
+    it("keeps a level-0 'A§B' value distinct from genuine A→B nesting (collision fix)", () => {
+      const dateCol: SkiaInternalGridColumn<TestData> = {
+        id: "date",
+        __id: "date",
+        __index: 0,
+        name: "Date",
+        field: "date",
+        width: 80,
+        colId: "date",
+      };
+      const colACol: SkiaInternalGridColumn<TestData> = {
+        id: "col_a",
+        __id: "col_a",
+        __index: 1,
+        name: "Col A",
+        field: "col_a",
+        width: 100,
+        colId: "col_a",
+      };
+      const row1: RowNode<TestData> = {
+        children: [],
+        level: 0,
+        __index: 0,
+        __id: "r1",
+        data: { col_a: "x", col_b: 0, date: "A§B" },
+      };
+      const row2: RowNode<TestData> = {
+        children: [],
+        level: 0,
+        __index: 0,
+        __id: "r2",
+        data: { col_a: "B", col_b: 0, date: "A" },
+      };
+      // One row grouped by a single column whose value literally contains "§".
+      const single = getParentRowNodeKeys(row1, [dateCol]);
+      // Another row grouped by two columns: date="A", then col_a="B".
+      const nested = getParentRowNodeKeys(row2, [dateCol, colACol]);
+      // Pre-fix these collided ("A§B" === "A"+"§"+"B"); now they must differ.
+      expect(single[0]).not.toBe(nested[1]);
+    });
+  });
+
+  describe("encode/decodeGroupKeySegment", () => {
+    it("round-trips values containing the separator and percent signs", () => {
+      for (const v of ["plain", "a§b", "100%", "a%b§c", "%A7", "§§", ""]) {
+        expect(decodeGroupKeySegment(encodeGroupKeySegment(v))).toBe(v);
+      }
+    });
+
+    it("is identity for separator-free, percent-free values", () => {
+      expect(encodeGroupKeySegment("Alice")).toBe("Alice");
     });
   });
 

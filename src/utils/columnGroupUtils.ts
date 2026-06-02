@@ -33,13 +33,20 @@ export function buildColumnGroupPaths<T extends Object>(
 
   function walk(
     entries: SkiaGridColumnDef<T>[],
-    path: { headerName: string; depth: number }[]
+    path: ColumnGroupPath
   ) {
     for (const def of entries) {
       if (isColGroupDef(def)) {
+        // groupId = the full ancestor chain of headerNames. JSON.stringify keeps
+        // it collision-free regardless of the characters in a headerName, and
+        // distinguishes same-named sibling groups under different parents.
+        const groupId = JSON.stringify([
+          ...path.map((p) => p.headerName),
+          def.headerName,
+        ]);
         walk(def.children, [
           ...path,
-          { headerName: def.headerName, depth: path.length },
+          { headerName: def.headerName, depth: path.length, groupId },
         ]);
       } else {
         const colId = def.colId ?? def.field;
@@ -66,7 +73,10 @@ export function computeColumnGroupHeaders(
     if (!groupPath) continue;
 
     for (const group of groupPath) {
-      const key = `${group.headerName}__${group.depth}`;
+      // Coalesce adjacent columns into one header by group identity. Prefer the
+      // parent-aware groupId; fall back to headerName+depth for paths that don't
+      // carry one (e.g. hand-built test fixtures).
+      const key = group.groupId ?? `${group.headerName}__${group.depth}`;
       const existing = seen.get(key);
 
       if (existing && existing.startColIndex + existing.colSpan === i) {

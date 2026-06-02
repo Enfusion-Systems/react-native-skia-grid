@@ -6,11 +6,16 @@ import type {
   RowNode,
   SkiaInternalGridColumn,
 } from "../types";
-import { GROUP_COLUMN_ID, GROUP_KEY_SEPARATOR } from "../../utils/constants";
-import { getParentRowNodeKeys } from "../../utils/gridUtils";
+import {
+  GROUP_BLANK_VALUE,
+  GROUP_COLUMN_ID,
+  GROUP_KEY_SEPARATOR,
+} from "../../utils/constants";
+import {
+  decodeGroupKeySegment,
+  getParentRowNodeKeys,
+} from "../../utils/gridUtils";
 import { sortRows } from "./sort";
-
-const EMPTY_KEY = "__Blank__";
 
 function createGroupRowNode<T extends Object>(
   key: string,
@@ -23,7 +28,7 @@ function createGroupRowNode<T extends Object>(
     id: key,
     __index: -1,
     __id: key,
-    groupRowData: { [column.field]: value !== EMPTY_KEY ? value : "" },
+    groupRowData: { [column.field]: value !== GROUP_BLANK_VALUE ? value : "" },
     group: true,
     groupKey: key,
     expanded: false,
@@ -43,7 +48,11 @@ function generateKeys<T extends Object>(
   return rows.reduce<Record<string, RowNode<T>>>((res, row) => {
     const parentKeys = getParentRowNodeKeys(row, cols);
     parentKeys.forEach((key, idx) => {
-      const value = key.split(GROUP_KEY_SEPARATOR).pop() ?? "";
+      // The key segments are percent-encoded (see encodeGroupKeySegment); decode
+      // the last one back to the raw value for display in the group cell.
+      const value = decodeGroupKeySegment(
+        key.split(GROUP_KEY_SEPARATOR).pop() ?? ""
+      );
       if (!res[key]) res[key] = createGroupRowNode(key, value, idx, cols[idx]);
       if (idx === parentKeys.length - 1) res[key]?.children.push(row);
     });
@@ -55,6 +64,12 @@ function getHierarchicalNode<T extends Object>(
   keys: string[],
   data: Record<string, RowNode<T>>
 ) {
+  // Attach each non-root key to its immediate parent. Correctness does NOT
+  // depend on ordering: nodes are linked by reference from `data`, so a child
+  // attached before its own children still ends up with them. The length sort
+  // is only a heuristic (longer string ≈ deeper level) and is NOT a reliable
+  // depth proxy — do not rely on it for anything load-bearing. `.sort` also
+  // mutates `keys` in place; callers pass a throwaway array.
   const sortedKeys = keys?.sort((a, b) => b.length - a.length);
   const nodes = sortedKeys.reduce<RowNode<T>>((res, key) => {
     if (!key.includes(GROUP_KEY_SEPARATOR)) {
