@@ -1,0 +1,71 @@
+# Required PR gate. Two jobs:
+#   • lib-checks  — the library's own typecheck + unit tests (fast, Linux).
+#   • ios-smoke   — Detox smoke spec on the pinned simulator (the real signal).
+#
+# NOTE: the example app's own `typecheck` is intentionally NOT gated here — it has
+# pre-existing implicit-any errors in example/src/stories/*. The merge-critical
+# checks are the library typecheck/tests and the iOS smoke run.
+#
+# The iOS job needs a runner whose installed iOS runtime matches the pinned
+# device in example/.detoxrc.js (iPhone 17 Pro / iOS 26.2). Override the device
+# with `-n "<name>"` if the runner image differs.
+name: PR Smoke
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: pr-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lib-checks:
+    name: Library typecheck + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install (library root)
+        run: yarn install --frozen-lockfile
+      - name: Typecheck
+        run: yarn typecheck
+      - name: Unit tests
+        run: yarn test --ci
+
+  ios-smoke:
+    name: iOS Detox smoke
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install applesimutils
+        run: |
+          brew tap wix/brew
+          brew install applesimutils
+      - name: Install (example)
+        working-directory: example
+        run: yarn install --frozen-lockfile
+      - name: Build (Detox debug)
+        working-directory: example
+        run: yarn build:ios
+      - name: Start Metro
+        working-directory: example
+        run: |
+          yarn start &
+          timeout 90 bash -c 'until curl -sf http://localhost:8081/status | grep -q packager-status:running; do sleep 2; done'
+      - name: Smoke e2e
+        working-directory: example
+        run: yarn e2e:ios:smoke --cleanup --headless --record-logs failing
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: detox-smoke-artifacts
+          path: example/.artifacts
+          if-no-files-found: ignore

@@ -1,0 +1,50 @@
+# Release gate. On a version tag, the full Detox suite must pass (incl. geometry
+# visual snapshots, with CI=true enforcing committed baselines) before the
+# release is allowed to proceed.
+name: Release Gate
+
+on:
+  push:
+    tags:
+      - "react-native-skia-grid@*"
+
+jobs:
+  ios-release:
+    name: iOS full suite (release gate)
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Library typecheck + tests
+        run: |
+          yarn install --frozen-lockfile
+          yarn typecheck
+          yarn test --ci
+      - name: Install applesimutils
+        run: |
+          brew tap wix/brew
+          brew install applesimutils
+      - name: Install (example)
+        working-directory: example
+        run: yarn install --frozen-lockfile
+      - name: Build (Detox debug)
+        working-directory: example
+        run: yarn build:ios
+      - name: Start Metro
+        working-directory: example
+        run: |
+          yarn start &
+          timeout 90 bash -c 'until curl -sf http://localhost:8081/status | grep -q packager-status:running; do sleep 2; done'
+      - name: Full e2e suite
+        working-directory: example
+        run: yarn e2e:ios --cleanup --headless --record-logs failing
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-artifacts
+          path: example/.artifacts
+          if-no-files-found: ignore

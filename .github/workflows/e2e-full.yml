@@ -1,0 +1,63 @@
+# Optional, label-gated full regression. Add the `e2e:full` label to a PR to run
+# the complete Detox suite (incl. geometry visual snapshots) plus the perf
+# benchmarks compared against the committed baseline.
+#
+# CI=true (set by Actions) makes jest-image-snapshot fail on a MISSING baseline
+# instead of silently writing one, and BENCH_ASSERT=1 fails on a perf regression
+# beyond each scenario's noise band.
+name: E2E Full
+
+on:
+  pull_request:
+    types: [labeled, synchronize]
+    branches: [main]
+
+concurrency:
+  group: e2e-full-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-full:
+    name: iOS full suite + visual + bench
+    # Only when the PR carries the e2e:full label.
+    if: contains(github.event.pull_request.labels.*.name, 'e2e:full')
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install applesimutils
+        run: |
+          brew tap wix/brew
+          brew install applesimutils
+      - name: Install (example)
+        working-directory: example
+        run: yarn install --frozen-lockfile
+      - name: Build (Detox debug)
+        working-directory: example
+        run: yarn build:ios
+      - name: Start Metro
+        working-directory: example
+        run: |
+          yarn start &
+          timeout 90 bash -c 'until curl -sf http://localhost:8081/status | grep -q packager-status:running; do sleep 2; done'
+      - name: Full e2e suite (+ geometry visual snapshots)
+        working-directory: example
+        run: yarn e2e:ios --cleanup --headless --record-logs failing
+      - name: Perf benchmarks (assert vs baseline)
+        working-directory: example
+        env:
+          BENCH_ASSERT: "1"
+        run: yarn bench:ios --cleanup --headless
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-full-artifacts
+          path: |
+            example/.artifacts
+            example/e2e/__image_snapshots__/**/__diff_output__
+            benchmarks/reports
+          if-no-files-found: ignore

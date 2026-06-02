@@ -26,6 +26,12 @@ yarn-debug.log*
 # Detox artifacts (suite-level)
 .artifacts/
 
+# Benchmark run output (baselines/ are committed; reports/ are per-run)
+/benchmarks/reports/
+
+# Visual-snapshot diff output (baselines under __image_snapshots__ are committed)
+example/e2e/__image_snapshots__/**/__diff_output__/
+
 # Coverage
 /coverage
 

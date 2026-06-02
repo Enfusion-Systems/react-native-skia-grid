@@ -1,0 +1,2 @@
+# Committed baselines land here, e.g. ios-iphone17pro-26_2.json
+# Record with: BENCH_UPDATE_BASELINE=1 yarn bench:ios   (run from example/)

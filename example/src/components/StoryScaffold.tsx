@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { GridReportableState } from "react-native-skia-grid";
 
 import { StateBridge } from "../StateBridge";
+import { BenchBridge, useBenchBridge } from "./BenchBridge";
 
 /**
  * Shared chrome for every showcase story:
@@ -37,9 +38,23 @@ export function StoryScaffold({
 }: StoryScaffoldProps): React.ReactElement {
   const insets = useSafeAreaInsets();
   const [state, setState] = React.useState<GridReportableState | null>(null);
+  // Bench bridge for the perf harness. `sample`/`reset` are referentially
+  // stable (useCallback []); we depend ONLY on `sample` so `reportState` keeps a
+  // stable identity. Critical: publishing bench stats must NOT change the grid's
+  // onLayoutComplete prop, or every publish forces a grid redraw → another
+  // sample → a self-sustaining loop that never lets the app (or Detox) idle.
+  const {
+    markStart: benchMarkStart,
+    sample: benchSample,
+    reset: benchReset,
+    stats: benchStats,
+  } = useBenchBridge();
   const reportState = React.useCallback(
-    (next: GridReportableState) => setState(next),
-    []
+    (next: GridReportableState) => {
+      benchSample();
+      setState(next);
+    },
+    [benchSample]
   );
 
   return (
@@ -61,10 +76,20 @@ export function StoryScaffold({
       {controls ? <View style={styles.controls}>{controls}</View> : null}
 
       <View style={styles.gridContainer} testID="grid-root">
-        {children(reportState)}
+        {__DEV__ ? (
+          // Profiler onRender fires right after the grid commits (before its
+          // recording effects), marking the redraw start the bench bridge times
+          // against onLayoutComplete. Dev/bench only.
+          <React.Profiler id="grid-redraw" onRender={benchMarkStart}>
+            {children(reportState)}
+          </React.Profiler>
+        ) : (
+          children(reportState)
+        )}
       </View>
 
       <StateBridge state={state} />
+      <BenchBridge stats={benchStats} onReset={benchReset} />
     </View>
   );
 }

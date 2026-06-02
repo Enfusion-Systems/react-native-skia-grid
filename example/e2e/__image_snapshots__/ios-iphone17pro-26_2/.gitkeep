@@ -1,0 +1,2 @@
+# Committed visual baselines (geometry layers) land here, keyed by device+runtime.
+# Generated on first `yarn e2e:ios` run; in CI a missing baseline fails (--ci).
