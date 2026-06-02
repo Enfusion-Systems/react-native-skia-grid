@@ -84,29 +84,27 @@ export const SetFilter: React.FC<{
             checked={selectAllCheckedState}
           />
         )}
-        <ScrollView showsHorizontalScrollIndicator={false} horizontal>
-          <VirtualizedList
-            style={styles.virtualList}
-            data={filteredData}
-            initialNumToRender={10}
-            getItemCount={getItemCount}
-            getItem={getItem}
-            renderItem={(res) => {
-              const item = res.item as SetItem;
-              return (
-                <Checkbox
-                  key={item.key}
-                  containerStyles={checkbox.listRow}
-                  style={checkbox.listRowButton}
-                  onChange={onCheckedStatusChange(item.key)}
-                  checked={item.checked}
-                  label={`${item.value}`}
-                />
-              );
-            }}
-            renderScrollComponent={(props) => <ScrollView {...props} />}
-          />
-        </ScrollView>
+        <VirtualizedList
+          style={styles.virtualList}
+          data={filteredData}
+          initialNumToRender={10}
+          getItemCount={getItemCount}
+          getItem={getItem}
+          renderItem={(res) => {
+            const item = res.item as SetItem;
+            return (
+              <Checkbox
+                key={item.key}
+                containerStyles={checkbox.listRow}
+                style={checkbox.listRowButton}
+                onChange={onCheckedStatusChange(item.key)}
+                checked={item.checked}
+                label={`${item.value}`}
+              />
+            );
+          }}
+          renderScrollComponent={(props) => <ScrollView {...props} />}
+        />
       </View>
       <ErrorBoundary>
         <BottomActionModal

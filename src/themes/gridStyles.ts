@@ -72,6 +72,7 @@ export function computeGridStyles(t: Tokens, theme: GridTheme) {
       // Flat list-row variant — used for long checkbox lists (e.g., set filter).
       // Bottom hairline divider replaces the boxed/card pattern for less visual noise.
       listRow: {
+        width: "100%",
         borderBottomWidth: t.borderThin,
         borderBottomColor: theme.borderColor,
       },

@@ -28,7 +28,13 @@ function CheckboxContainer({ labelPlacement, style, children, ...rest }: Checkbo
 
 function StyledLabel(props: React.ComponentProps<typeof NormalText> & NormalTextProps) {
   const { style, ...rest } = props;
-  return <NormalText style={[{ marginLeft: 8, marginRight: 8 }, style]} {...rest} />;
+
+  return (
+    <NormalText
+      style={[{ marginLeft: 8, marginRight: 8, flexShrink: 1 }, style]}
+      {...rest}
+    />
+  );
 }
 
 export type CheckboxProps = {
@@ -97,7 +103,7 @@ export const Checkbox: React.FC<CheckboxProps> = ({
             style={labelStyle as unknown as FontAwesomeIconStyle}
           />
         )}
-        <StyledLabel style={labelStyle} disabled={disabled}>
+        <StyledLabel style={labelStyle} disabled={disabled} numberOfLines={1}>
           {label ? label : <>&nbsp;</>}
         </StyledLabel>
         {labelPlacement === "right" && (
