@@ -14,12 +14,13 @@ import {
   type ValueFormatterArgs,
   FilterTypes,
 } from "../../core/types";
-import { GROUP_KEY_SEPARATOR } from "../constants";
+import { FONT_WIDTH_ADJ_MULTIPLIER, GROUP_KEY_SEPARATOR } from "../constants";
 import {
   applyGridTransaction,
   buildColGroupDepthMap,
   buildColumnGroupPaths,
   calculateBufferIndexes,
+  calculateRowColumnWidths,
   checkIndexes,
   computeColumnGroupHeaders,
   createOptions,
@@ -1962,6 +1963,121 @@ describe("gridUtils", () => {
 
       expect(result.length).toBeGreaterThanOrEqual(2);
       expect(result.every((r) => r.group)).toBe(true);
+    });
+  });
+
+  // ── Autosize: per-row content measurement ─────────────────────────────────
+  // calculateRowColumnWidths feeds the column-width cache that autosize reads.
+  // A fake font measures `charCount * W_PER_CHAR`; getTextWidth then applies
+  // FONT_WIDTH_ADJ_MULTIPLIER (the fake font isn't registered via getFont, so
+  // getTextWidth takes its uncached fallback path — same arithmetic).
+  describe("calculateRowColumnWidths (autosize measurement)", () => {
+    const W_PER_CHAR = 7;
+    const fakeFont = {
+      measureText: (t: string) => ({ width: t.length * W_PER_CHAR }),
+    } as never;
+    // Mirror getTextWidth's fallback: measureText().width * adjustment.
+    const textW = (s: string) => s.length * W_PER_CHAR * FONT_WIDTH_ADJ_MULTIPLIER;
+
+    const col = (
+      over: Partial<SkiaInternalGridColumn> & { __id: string; name: string }
+    ): SkiaInternalGridColumn =>
+      ({
+        id: over.__id,
+        __index: 0,
+        field: over.field ?? over.__id,
+        colId: over.__id,
+        width: 100,
+        ...over,
+      } as SkiaInternalGridColumn);
+
+    const leaf = (data: Record<string, unknown>): RowNode =>
+      ({ children: [], level: 0, __id: "r1", __index: 0, data } as RowNode);
+
+    it("measures the wider of header and cell value for a visible column", () => {
+      // header "Region" (6) < value "North America" (13) → value wins.
+      const res = calculateRowColumnWidths(
+        leaf({ region: "North America" }),
+        [col({ __id: "region", name: "Region", field: "region" })],
+        fakeFont
+      );
+      expect(res.region).toBeCloseTo(textW("North America"));
+    });
+
+    it("uses the header width when it exceeds the cell value", () => {
+      // header "Loooong Header" (14) > value "x" (1) → header wins.
+      const res = calculateRowColumnWidths(
+        leaf({ a: "x" }),
+        [col({ __id: "a", name: "Loooong Header", field: "a" })],
+        fakeFont
+      );
+      expect(res.a).toBeCloseTo(textW("Loooong Header"));
+    });
+
+    it("skips hidden (non-group) columns and checkbox columns", () => {
+      const res = calculateRowColumnWidths(
+        leaf({ a: "value", b: "value", c: "value" }),
+        [
+          col({ __id: "a", name: "A", field: "a", hide: true }),
+          col({ __id: "b", name: "B", field: "b", checkboxSelection: true }),
+          col({ __id: "c", name: "C", field: "c" }),
+        ],
+        fakeFont
+      );
+      expect(res).not.toHaveProperty("a");
+      expect(res).not.toHaveProperty("b");
+      expect(res).toHaveProperty("c");
+    });
+
+    it("measures the LEAF data value for a hidden row-group column", () => {
+      // Regression for the grouped-column autosize bug: a row-group column is
+      // hidden, but its values must still be measured (they drive the group
+      // column width). Previously only groupRowData was read — empty on leaf
+      // rows — so the column cached just its header width.
+      const regionCol = col({
+        __id: "region",
+        name: "Region",
+        field: "region",
+        hide: true,
+        rowGroup: true,
+        rowGroupIndex: 0,
+      });
+      const res = calculateRowColumnWidths(
+        leaf({ region: "North America" }),
+        [regionCol],
+        fakeFont
+      );
+      expect(res.region).toBeCloseTo(textW("North America"));
+      // The value, not just the header, was measured.
+      expect(res.region).toBeGreaterThan(textW("Region"));
+    });
+
+    it("measures groupRowData for a row-group column on a group node", () => {
+      const regionCol = col({
+        __id: "region",
+        name: "Region",
+        field: "region",
+        hide: true,
+        rowGroup: true,
+        rowGroupIndex: 0,
+      });
+      const groupNode = {
+        children: [],
+        level: 0,
+        __id: "g1",
+        __index: -1,
+        group: true,
+        groupRowData: { region: "Asia Pacific Region" },
+      } as unknown as RowNode;
+      const res = calculateRowColumnWidths(groupNode, [regionCol], fakeFont);
+      expect(res.region).toBeCloseTo(textW("Asia Pacific Region"));
+    });
+
+    it("returns zero widths when no font is supplied", () => {
+      const res = calculateRowColumnWidths(leaf({ a: "value" }), [
+        col({ __id: "a", name: "A", field: "a" }),
+      ]);
+      expect(res.a).toBe(0);
     });
   });
 });

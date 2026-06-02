@@ -30,6 +30,31 @@ export type UseColumnWidthCacheResult<T extends Object> = {
   ) => void;
 };
 
+// Synthesizes the width of the injected group column (GROUP_COLUMN_ID) from the
+// cached content widths of the currently grouped columns. The group cell draws
+// the deepest group label, indented one GROUPED_ROW_PADDING step per level, so
+// the column must fit the widest grouped-column value plus that indentation.
+// Exported for unit testing (otherwise an internal of this hook).
+export function computeGroupColumnWidth<T extends Object>(
+  widthMap: Map<string, number>,
+  groupedColumns: SkiaInternalGridColumn<T>[],
+  font: SkFont
+): number {
+  const headerWidth = getTextWidth(font, GROUP_COLUMN_NAME);
+  return groupedColumns.reduce<number>((res, col) => {
+    // Fall back to the grouped column's own header width when its content width
+    // isn't cached yet (cache miss → 0), so the group column never collapses to
+    // just padding + indentation while the label is still being measured.
+    const cachedColWidth = Math.max(
+      widthMap.get(col.__id) ?? 0,
+      getTextWidth(font, col.name ?? "")
+    );
+    const xPos = ((col.rowGroupIndex ?? 0) + 1) * GROUPED_ROW_PADDING;
+    const newWidth = 4 * CELL_PADDING + cachedColWidth + xPos;
+    return res < newWidth ? newWidth : res;
+  }, headerWidth);
+}
+
 // Per-column max text-width cache, used to derive autosized widths without
 // re-measuring every cell on each interaction. The cache is rebuilt in
 // chunks so we can yield to the event loop between slices — see
@@ -74,6 +99,21 @@ export function useColumnWidthCache<T extends Object>({
           if (index < rows.length) {
             setTimeout(processChunk, 0);
           } else {
+            // The rebuild above measured every real column but wiped the
+            // synthetic group column's entry (it isn't one of `columns`).
+            // Re-derive it from the freshly measured grouped-column widths so
+            // the group column keeps fitting its content across data changes.
+            const groupedColumns = columns.filter((c) => c.rowGroup);
+            if (groupedColumns.length) {
+              columnWidthMap.current.set(
+                GROUP_COLUMN_ID,
+                computeGroupColumnWidth(
+                  columnWidthMap.current,
+                  groupedColumns,
+                  font
+                )
+              );
+            }
             resolve();
           }
         };
@@ -152,14 +192,10 @@ export function useColumnWidthCache<T extends Object>({
         columnWidthMap.current.delete(GROUP_COLUMN_ID);
         return;
       }
-      const headerWidth = getTextWidth(font, GROUP_COLUMN_NAME);
-      const groupColWidth = groupedColumns.reduce<number>((res, col) => {
-        const cachedColWidth = columnWidthMap.current.get(col.__id) ?? 0;
-        const xPos = ((col.rowGroupIndex ?? 0) + 1) * GROUPED_ROW_PADDING;
-        const newWidth = 4 * CELL_PADDING + cachedColWidth + xPos;
-        return res < newWidth ? newWidth : res;
-      }, headerWidth);
-      columnWidthMap.current.set(GROUP_COLUMN_ID, groupColWidth);
+      columnWidthMap.current.set(
+        GROUP_COLUMN_ID,
+        computeGroupColumnWidth(columnWidthMap.current, groupedColumns, font)
+      );
     },
     [font]
   );

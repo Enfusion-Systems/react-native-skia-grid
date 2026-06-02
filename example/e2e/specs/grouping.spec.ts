@@ -63,6 +63,32 @@ describe("Grouping", () => {
     jestExpect(state.columnIds).not.toContain(GROUP_COLUMN_NAME);
   });
 
+  it("gives the injected group column at least the default width (not a narrow sliver)", async () => {
+    // The grouping story pins nothing left, so the left section width is driven
+    // entirely by the synthetic group column once grouping is on (it's pinned
+    // LEFT — see DataGrid's injection). That makes the group column's width
+    // observable through sectionWidths without a per-column-width bridge.
+    const before = await gridDriver.waitForState((s) => s.rowCount === 200);
+
+    await gridDriver.openColumnMenu("grouping", "side", { groupBar: true });
+    await gridDriver.tapId(A.group);
+
+    // Regression guard: the group column used to collapse to ~25px (caret +
+    // padding + indentation only), clipping the group label. Its width is now
+    // floored at the 105px default, so the left section must be at least that.
+    const after = await gridDriver.waitForState(
+      (s) => s.rowCount === 2 && s.columnIds.includes(GROUP_COLUMN_NAME),
+      {
+        description:
+          "grouped by side → group column injected, left section grows",
+      }
+    );
+    jestExpect(after.sectionWidths.left).toBeGreaterThan(
+      before.sectionWidths.left
+    );
+    jestExpect(after.sectionWidths.left).toBeGreaterThanOrEqual(105);
+  });
+
   it.todo("expand / collapse a group row (needs group-row hit testing)");
   it.todo("verify aggregation VALUES (sum/avg) — visual, not in the state bridge)");
 });

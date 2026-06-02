@@ -291,7 +291,12 @@ export function createGridComp<T extends Object>() {
         id: autoGroupColumnDefs?.id ?? GROUP_COLUMN_ID,
         __index: insertAt,
         field: "",
-        width: columnWidthMap.current.get(GROUP_COLUMN_ID) ?? 105,
+        // Floor at the default width (not just fall back to it): the cached
+        // group-column width can be missing or too small — e.g. recompute ran
+        // before the grouped column's content width was cached — and that
+        // previously left the column too narrow to show the group label. A
+        // floor guarantees a readable default; real content widens it further.
+        width: Math.max(columnWidthMap.current.get(GROUP_COLUMN_ID) ?? 0, 105),
         cellRenderer: autoGroupColumnDefs?.cellRenderer ?? GroupCellRenderer,
       } as SkiaInternalGridColumn<T>;
       const next = [...engineColumns];

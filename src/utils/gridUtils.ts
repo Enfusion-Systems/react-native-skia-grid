@@ -270,14 +270,19 @@ export function calculateRowColumnWidths<T extends Object>(
         // measurement; max(h·M, t·M) === max(h, t)·M, so this is numerically
         // identical to the previous raw measureText path — just cached.
         const headerWidth = font ? getTextWidth(font, def.name) : 0;
-        const textWidth = font
-          ? getTextWidth(
-              font,
-              def?.rowGroup
-                ? get(node.groupRowData, def.field) ?? ""
-                : getDisplayValue(def, node)[0]?.toString() ?? ""
-            )
-          : 0;
+        // A row-group column is hidden but still drives the synthetic group
+        // column's width via its cached content width. The label rendered in
+        // the group cell is this column's display value (see
+        // getParentRowNodeKeys): on a group node it lives in groupRowData, on a
+        // leaf row it lives in the row data. Measuring only groupRowData missed
+        // every leaf value, so a grouped column cached just its header width and
+        // the group column came out too narrow to fit the group labels.
+        const cellText = def?.rowGroup
+          ? node.group
+            ? (get(node.groupRowData, def.field) ?? "").toString()
+            : getDisplayValue(def, node)[0]?.toString() ?? ""
+          : getDisplayValue(def, node)[0]?.toString() ?? "";
+        const textWidth = font ? getTextWidth(font, cellText) : 0;
         res[def.__id] = Math.max(headerWidth, textWidth);
       }
     }
