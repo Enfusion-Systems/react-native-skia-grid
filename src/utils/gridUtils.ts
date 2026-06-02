@@ -22,11 +22,9 @@ import {
   type SkiaGridColumn,
   type SkiaInternalGridColumn,
 } from "../core/types";
-import {
-  FONT_WIDTH_ADJ_MULTIPLIER,
-  GROUP_KEY_SEPARATOR,
-} from "./constants";
+import { GROUP_KEY_SEPARATOR } from "./constants";
 import { translationClamp } from "../renderer/sectionWidthUtils";
+import { getTextWidth } from "../renderer/drawing/fontUtils";
 
 export const randomValue = (from: number, to: number) =>
   Math.min(Math.round(from + Math.random() * (to - from)), to);
@@ -268,16 +266,19 @@ export function calculateRowColumnWidths<T extends Object>(
   if (columnDefs) {
     for (const def of columnDefs) {
       if ((!def.hide && !def.checkboxSelection) || def.rowGroup) {
-        const headerWidth = font ? font.measureText(def.name).width : 0;
+        // getTextWidth already applies FONT_WIDTH_ADJ_MULTIPLIER and caches the
+        // measurement; max(h·M, t·M) === max(h, t)·M, so this is numerically
+        // identical to the previous raw measureText path — just cached.
+        const headerWidth = font ? getTextWidth(font, def.name) : 0;
         const textWidth = font
-          ? font.measureText(
+          ? getTextWidth(
+              font,
               def?.rowGroup
                 ? get(node.groupRowData, def.field) ?? ""
                 : getDisplayValue(def, node)[0]?.toString() ?? ""
-            ).width
+            )
           : 0;
-        res[def.__id] =
-          Math.max(headerWidth, textWidth) * FONT_WIDTH_ADJ_MULTIPLIER;
+        res[def.__id] = Math.max(headerWidth, textWidth);
       }
     }
   }

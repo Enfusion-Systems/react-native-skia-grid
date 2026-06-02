@@ -19,7 +19,7 @@ import {
   type SelectionCommand,
 } from "../core/managers/SelectionManager";
 import { SelectionCellRenderer } from "../renderer/cellRenderers/SelectionCellRenderer";
-import { CELL_PADDING } from "../utils/constants";
+import { CELL_PADDING, MIN_COLUMN_SIZE } from "../utils/constants";
 import {
   columnDefsContentEqual,
   flattenColumnDefs,
@@ -249,16 +249,24 @@ export function useColumnController<T extends Object>(
     (cols: SkiaInternalGridColumn<T>[] | []) => {
       const newColumns = columns.reduce<SkiaInternalGridColumn<T>[]>(
         (res, col) => {
-          if (!cols.find((x) => x.__id === col.__id)) {
+          const targeted = cols.some((x) => x.__id === col.__id);
+          const cached = columnWidthMap.current.get(col.__id);
+          // Only resize a requested column when we actually hold a measured
+          // content width for it. On a cache miss — e.g. the chunked
+          // resetColumnWidthCache hasn't reached this column yet, or the
+          // column has no measurable content — leave it untouched. The old
+          // miss path seeded the map with `col.width` (which already includes
+          // padding) and then re-added padding, inflating the width by
+          // ~2·CELL_PADDING on every call, and produced NaN when `col.width`
+          // was undefined.
+          if (!targeted || typeof cached !== "number") {
             res.push(col);
           } else {
-            if (!columnWidthMap.current.has(col.__id)) {
-              columnWidthMap.current.set(col.__id, col.width);
-            }
             res.push({
               ...col,
-              width: Math.ceil(
-                columnWidthMap.current.get(col.__id)! + 2 * CELL_PADDING
+              width: Math.max(
+                MIN_COLUMN_SIZE,
+                Math.ceil(cached + 2 * CELL_PADDING)
               ),
             });
           }
